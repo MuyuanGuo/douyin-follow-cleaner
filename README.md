@@ -35,6 +35,10 @@ cd douyin-follow-cleaner
 4. 查看结果列表；需要时勾选 **扫描后执行取关** 再扫一遍（或先导出 CSV 备份）。  
 5. **中止** 可随时请求停止（已发出的网络请求可能仍在进行）。
 
+## 关注列表握手（source_type）
+
+网页端拉关注列表时，常见约定是：**第一次**请求带 `source_type=2`、`max_time=0`（列表常为空，只返回游标）；**第二次起**带 `source_type=1` 和上一页返回的 `max_time`。本扩展已默认按此逻辑请求（见 `douyinApiMapping.followingList.useSourceTypeHandshake`）。若你抓包发现接口已不需要握手，可在映射里把 `useSourceTypeHandshake` 设为 `false` 后重新 `npm run build`。
+
 ## 抓包校准（接口变更时必做）
 
 抖音站内接口路径、query、JSON 字段会改版。若出现「关注列表解析失败」或结果明显不对：

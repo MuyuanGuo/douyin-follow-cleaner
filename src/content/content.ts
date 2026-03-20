@@ -3,9 +3,11 @@ import {
   buildProfileSelfUrl,
   buildProfileUrl,
   buildUnfollowRequest,
+  checkFollowingApiError,
   parseFollowingResponse,
   parseSelfProfileSecUserId,
 } from '../shared/client';
+import { followingList } from '../shared/douyinApiMapping';
 import { normalizeProfileJson } from '../shared/normalize';
 import { evaluateUser } from '../shared/rules';
 import type { ScanResultRow } from '../shared/types';
@@ -102,11 +104,17 @@ async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; erro
   const seen = new Set<string>();
   let page = 0;
   const maxPages = 500;
+  const useHandshake = followingList.useSourceTypeHandshake !== false;
 
   while (fetched < opts.maxFollowingToScan && page < maxPages) {
     page += 1;
     if (opts.signal?.aborted) return { rows, error: 'aborted' };
-    const url = buildFollowingListUrl(opts.ownerSecUserId, maxTime, 20);
+
+    const isFirstFollowingRequest = page === 1;
+    const sourceType: 1 | 2 = useHandshake && isFirstFollowingRequest ? 2 : 1;
+    const requestMaxTime = useHandshake && isFirstFollowingRequest ? '0' : maxTime;
+
+    const url = buildFollowingListUrl(opts.ownerSecUserId, requestMaxTime, 20, sourceType);
     const res = await pageFetch(url);
     if (res.error) {
       return { rows, error: res.error };
@@ -118,10 +126,30 @@ async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; erro
     if (!json) {
       return {
         rows,
-        error: `关注列表解析失败 HTTP ${res.status}，请核对 douyinApiMapping 中 followingList 路径或登录态`,
+        error: `关注列表非 JSON（HTTP ${res.status}）。可能被风控拦截或路径错误，请核对 douyinApiMapping.followingList.path`,
       };
     }
+
+    const apiErr = checkFollowingApiError(json);
+    if (apiErr) {
+      return { rows, error: apiErr };
+    }
+
     const { items, nextMaxTime, hasMore } = parseFollowingResponse(json);
+
+    /** 首次握手：source_type=2 时常返回空列表，仅携带下一页游标，不能当作「没有关注」 */
+    if (useHandshake && isFirstFollowingRequest && items.length === 0) {
+      maxTime = nextMaxTime;
+      if (!maxTime || maxTime === '0') {
+        return {
+          rows,
+          error:
+            '关注列表握手未返回有效游标（max_time 等）。请在 Network 中搜索含 following/relation 的请求，对照更新 douyinApiMapping',
+        };
+      }
+      continue;
+    }
+
     if (items.length === 0 && !hasMore) break;
 
     for (const item of items) {
@@ -159,7 +187,7 @@ async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; erro
     }
 
     maxTime = nextMaxTime;
-    if (!hasMore || items.length === 0) break;
+    if (!hasMore) break;
   }
 
   if (opts.executeUnfollow) {

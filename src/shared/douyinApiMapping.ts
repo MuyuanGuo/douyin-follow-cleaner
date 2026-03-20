@@ -19,15 +19,23 @@ export const defaultWebQuery: Record<string, string> = {
 /**
  * 关注列表（GET）
  * 常见路径：`/aweme/v1/web/user/following/list/`（若 404 请改为 Network 中实际路径）
+ *
+ * 网页端常见约定（与 TikHub / 抓包一致）：
+ * - **第一次**请求：`max_time=0`，`source_type=2`，返回列表常为空，但带下一页用的 `max_time`
+ * - **之后**请求：`source_type=1`，`max_time` 取上一页返回值
  */
 export const followingList = {
   path: '/aweme/v1/web/user/following/list/',
+  /** 为 false 时不再发握手请求（仅 source_type=1），接口改版时可关掉对照 Network */
+  useSourceTypeHandshake: true,
   queryKeys: {
     /** 主页主体的 sec_user_id（一般为当前登录用户打开自己主页时 URL 中的 ID） */
     secUserId: 'sec_user_id',
     count: 'count',
     /** 分页游标：首次 0，后续取上一页响应中的 max_time（字段名见 responsePaths） */
     maxTime: 'max_time',
+    /** 1=正式拉取；2=首次握手 */
+    sourceType: 'source_type',
   },
   defaultCount: 20,
   responsePaths: {
