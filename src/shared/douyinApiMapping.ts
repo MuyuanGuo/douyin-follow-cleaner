@@ -45,6 +45,15 @@ export const followingList = {
 };
 
 /**
+ * 当前登录用户资料（GET）
+ * 用于 URL 为 `/user/self` 时解析真实 `sec_user_id`（地址栏不再展示长 ID）。
+ * 若 404，请在 Network 中搜索含 profile/self 或 user/info 的请求并改 path。
+ */
+export const userProfileSelf = {
+  path: '/aweme/v1/web/user/profile/self/',
+};
+
+/**
  * 他人用户资料（GET）
  */
 export const userProfileOther = {

@@ -30,7 +30,7 @@ cd douyin-follow-cleaner
 ## 使用步骤
 
 1. 用同一浏览器登录 [抖音网页版](https://www.douyin.com/)。  
-2. 打开**个人主页**（地址栏路径含 `/user/你的 sec_user_id`）。也可在扩展弹窗里手动填写 `sec_user_id`。  
+2. 打开**个人主页**。网页版常为 `https://www.douyin.com/user/self?...`，地址栏**不会**显示长串 `sec_user_id`——扩展会通过站内 **`/aweme/v1/web/user/profile/self/`** 请求解析你的真实 ID（若失败，可在弹窗手动填写，或按下文「抓包校准」更新 `userProfileSelf.path`）。  
 3. 点击扩展图标 → **开始扫描**。  
 4. 查看结果列表；需要时勾选 **扫描后执行取关** 再扫一遍（或先导出 CSV 备份）。  
 5. **中止** 可随时请求停止（已发出的网络请求可能仍在进行）。
@@ -42,10 +42,11 @@ cd douyin-follow-cleaner
 1. 打开 **开发者工具 (F12) → Network**，筛选 **Fetch/XHR**。  
 2. 在页面上操作：进入「关注」列表翻页、点开某个用户资料。  
 3. 记录以下请求的 **完整 URL** 与 **响应 JSON** 结构：  
+   - 当前登录用户资料（`/user/self` 页面对应的 `profile/self` 或同类接口，用于解析 `sec_user_id`）  
    - 关注列表分页  
    - 用户资料 `profile/other`（或当前实际路径）  
    - 取关（取消关注）的 **POST** URL 与 **表单/JSON 字段**  
-4. 编辑 [`src/shared/douyinApiMapping.ts`](src/shared/douyinApiMapping.ts)，修改 `followingList.path`、`defaultWebQuery`、`responsePaths` 等，与 Network 中一致。  
+4. 编辑 [`src/shared/douyinApiMapping.ts`](src/shared/douyinApiMapping.ts)，修改 `userProfileSelf.path`、`followingList.path`、`defaultWebQuery`、`responsePaths` 等，与 Network 中一致。  
 5. 重新执行 `npm run build`，在 `chrome://extensions` 里点扩展的 **重新加载**。
 
 ## 开发

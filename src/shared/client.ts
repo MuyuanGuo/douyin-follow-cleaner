@@ -4,6 +4,7 @@ import {
   defaultWebQuery,
   followingList,
   userProfileOther,
+  userProfileSelf,
 } from './douyinApiMapping';
 import type { FollowingListItem } from './types';
 
@@ -13,6 +14,37 @@ export function buildProfileUrl(secUserId: string): string {
     [userProfileOther.queryKeys.secUserId]: secUserId,
   });
   return `${DOUYIN_ORIGIN}${userProfileOther.path}?${q.toString()}`;
+}
+
+/** 当前登录用户（无 sec_user_id 参数），用于从 `/user/self` 页面解析真实 ID */
+export function buildProfileSelfUrl(): string {
+  const q = new URLSearchParams({ ...defaultWebQuery });
+  return `${DOUYIN_ORIGIN}${userProfileSelf.path}?${q.toString()}`;
+}
+
+/**
+ * 从 profile/self 接口 JSON 中取出 sec_uid / sec_user_id
+ */
+export function parseSelfProfileSecUserId(json: unknown): string | null {
+  if (!json || typeof json !== 'object') return null;
+  const root = json as Record<string, unknown>;
+
+  const pickFromUser = (u: unknown): string | null => {
+    if (!u || typeof u !== 'object') return null;
+    const o = u as Record<string, unknown>;
+    const s = o.sec_uid ?? o.sec_user_id;
+    if (typeof s === 'string' && s.length > 10 && s !== 'self') return s;
+    return null;
+  };
+
+  const data = root.data;
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    const fromData = pickFromUser(d.user) ?? pickFromUser(d.user_info) ?? pickFromUser(d);
+    if (fromData) return fromData;
+  }
+
+  return pickFromUser(root.user) ?? pickFromUser(root.user_info);
 }
 
 export function buildFollowingListUrl(secUserId: string, maxTime: string, count: number): string {

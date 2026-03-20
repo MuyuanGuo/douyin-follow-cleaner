@@ -1,8 +1,10 @@
 import {
   buildFollowingListUrl,
+  buildProfileSelfUrl,
   buildProfileUrl,
   buildUnfollowRequest,
   parseFollowingResponse,
+  parseSelfProfileSecUserId,
 } from '../shared/client';
 import { normalizeProfileJson } from '../shared/normalize';
 import { evaluateUser } from '../shared/rules';
@@ -42,6 +44,45 @@ async function pageFetch(url: string, init?: { method?: string; headers?: Record
 function extractOwnerSecFromLocation(): string | null {
   const m = window.location.pathname.match(/\/user\/([^/?]+)/);
   return m ? decodeURIComponent(m[1]) : null;
+}
+
+/** 地址栏里的长 ID（非 `self`） */
+function isLikelySecUserId(s: string): boolean {
+  const t = s.trim();
+  if (!t || t === 'self') return false;
+  return t.length >= 15 && /^[A-Za-z0-9._+-]+$/.test(t);
+}
+
+/**
+ * 解析「当前账号」的 sec_user_id：优先手动输入 → URL 路径 → profile/self 接口
+ */
+async function resolveOwnerSecUserId(manualInput: string | undefined): Promise<{ sec: string | null; error?: string }> {
+  const manual = manualInput?.trim();
+  if (manual && isLikelySecUserId(manual)) {
+    return { sec: manual };
+  }
+
+  const fromPath = extractOwnerSecFromLocation();
+  if (fromPath && isLikelySecUserId(fromPath)) {
+    return { sec: fromPath };
+  }
+
+  const selfUrl = buildProfileSelfUrl();
+  const res = await pageFetch(selfUrl);
+  if (res.error) {
+    return { sec: null, error: res.error };
+  }
+  const json = parseJson(res.text);
+  const sec = parseSelfProfileSecUserId(json);
+  if (sec) {
+    return { sec };
+  }
+
+  return {
+    sec: null,
+    error:
+      '无法从当前页解析 sec_user_id。请确认已登录；或在弹窗中手动填写 sec_user_id。若仍失败，请打开 DevTools→Network 找到「当前用户」请求，按 README 更新 userProfileSelf.path',
+  };
 }
 
 export interface ScanOptions {
@@ -145,21 +186,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'START_SCAN') {
     if (abort) abort.abort();
     abort = new AbortController();
-    const owner = (msg.ownerSecUserId as string) || extractOwnerSecFromLocation();
-    if (!owner) {
-      sendResponse({ ok: false, error: 'missing_owner_sec' });
-      return;
-    }
-    runScan({
-      ownerSecUserId: owner,
-      maxFollowingToScan: Number(msg.maxFollowingToScan) || 500,
-      delayMsBetweenProfiles: Number(msg.delayMsBetweenProfiles) || 1200,
-      delayMsBetweenUnfollows: Number(msg.delayMsBetweenUnfollows) || 2000,
-      executeUnfollow: Boolean(msg.executeUnfollow),
-      signal: abort.signal,
-    })
-      .then((r) => sendResponse({ ok: true, ...r }))
-      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    (async () => {
+      const resolved = await resolveOwnerSecUserId(msg.ownerSecUserId as string | undefined);
+      if (!resolved.sec) {
+        sendResponse({
+          ok: false,
+          error: resolved.error ?? 'missing_owner_sec',
+        });
+        return;
+      }
+      try {
+        const r = await runScan({
+          ownerSecUserId: resolved.sec,
+          maxFollowingToScan: Number(msg.maxFollowingToScan) || 500,
+          delayMsBetweenProfiles: Number(msg.delayMsBetweenProfiles) || 1200,
+          delayMsBetweenUnfollows: Number(msg.delayMsBetweenUnfollows) || 2000,
+          executeUnfollow: Boolean(msg.executeUnfollow),
+          signal: abort.signal,
+        });
+        sendResponse({ ok: true, ...r, resolvedOwnerSec: resolved.sec });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
     return true;
   }
   if (msg?.type === 'ABORT_SCAN') {

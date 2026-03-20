@@ -9,11 +9,11 @@
   <body>
     <main class="wrap">
       <h1>抖音关注清理</h1>
-      <p class="hint">请在 <strong>www.douyin.com</strong> 打开并登录，进入<strong>个人主页</strong>（地址栏含 <code>/user/你的ID</code>），再在此操作。</p>
+      <p class="hint">请在 <strong>www.douyin.com</strong> 打开并登录，进入<strong>个人主页</strong>（常见为 <code>/user/self?...</code>，扩展会自动请求「当前用户」接口解析 ID），再在此操作。</p>
 
       <label class="field">
-        <span>主页 sec_user_id（可留空，从当前页 URL 推断）</span>
-        <input type="text" id="ownerSec" placeholder="MS4wLjABAAAA..." />
+        <span>主页 sec_user_id（可留空；<code>/user/self</code> 时自动解析；仅当自动失败时再手动填写）</span>
+        <input type="text" id="ownerSec" placeholder="可选填 MS4wLjABAAAA..." />
       </label>
 
       <label class="field">
