@@ -18,17 +18,20 @@ async function fetchInMainWorld(
       world: 'MAIN',
       func: async (
         fetchUrl: string,
-        initArg: { method?: string; headers?: Record<string, string>; body?: string } | undefined,
+        initArg: { method?: string; headers?: Record<string, string>; body?: string } | null,
       ) => {
         const opt: RequestInit = { credentials: 'include' };
-        if (initArg?.method) opt.method = initArg.method;
-        if (initArg?.headers) opt.headers = initArg.headers;
-        if (initArg?.body !== undefined) opt.body = initArg.body;
+        if (initArg) {
+          if (initArg.method) opt.method = initArg.method;
+          if (initArg.headers) opt.headers = initArg.headers;
+          if (initArg.body !== undefined) opt.body = initArg.body;
+        }
         const r = await fetch(fetchUrl, opt);
         const text = await r.text();
         return { ok: r.ok, status: r.status, text };
       },
-      args: [url, init],
+      // structured clone 不支持 args 里传 undefined，必须用 null
+      args: [url, init ?? null],
     });
     const result = res?.result as PageFetchResult | undefined;
     if (!result) {
