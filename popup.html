@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>抖音关注清理</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>抖音关注清理</h1>
+      <p class="hint">请在 <strong>www.douyin.com</strong> 打开并登录，进入<strong>个人主页</strong>（地址栏含 <code>/user/你的ID</code>），再在此操作。</p>
+
+      <label class="field">
+        <span>主页 sec_user_id（可留空，从当前页 URL 推断）</span>
+        <input type="text" id="ownerSec" placeholder="MS4wLjABAAAA..." />
+      </label>
+
+      <label class="field">
+        <span>最多扫描关注数</span>
+        <input type="number" id="maxFollowing" value="500" min="1" max="5000" />
+      </label>
+
+      <label class="field">
+        <span>拉取资料间隔（毫秒）</span>
+        <input type="number" id="delayProfiles" value="1200" min="300" step="100" />
+      </label>
+
+      <label class="field">
+        <span>取关间隔（毫秒）</span>
+        <input type="number" id="delayUnfollow" value="2000" min="500" step="100" />
+      </label>
+
+      <label class="row">
+        <input type="checkbox" id="executeUnfollow" />
+        <span>扫描后<strong>执行取关</strong>（默认仅扫描并列出）</span>
+      </label>
+
+      <div class="actions">
+        <button type="button" id="btnScan" class="primary">开始扫描</button>
+        <button type="button" id="btnAbort">中止</button>
+        <button type="button" id="btnExport">导出 CSV</button>
+      </div>
+
+      <p id="status" class="status" role="status"></p>
+      <pre id="log" class="log"></pre>
+    </main>
+    <script src="dist/popup.js"></script>
+  </body>
+</html>
