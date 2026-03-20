@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "抖音关注清理",
   "version": "1.0.0",
-  "description": "在抖音网页版扫描关注列表，识别封禁/注销/无作品/非个人账号并可选择取消关注。",
+  "description": "在抖音网页版扫描关注列表，识别封禁/注销/无作品并可选择取消关注。",
   "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["https://www.douyin.com/*", "https://*.douyin.com/*"],
   "action": {

@@ -10,7 +10,6 @@ function base(over: Partial<NormalizedUser> = {}): NormalizedUser {
     isBanned: false,
     isDeleted: false,
     needsManualReview: false,
-    isNonPersonalAccount: false,
     ...over,
   };
 }
@@ -41,18 +40,11 @@ describe('evaluateUser', () => {
     expect(r.shouldUnfollow).toBe(false);
   });
 
-  it('flags non-personal accounts', () => {
-    const r = evaluateUser(base({ isNonPersonalAccount: true }));
-    expect(r.shouldUnfollow).toBe(true);
-    expect(r.reasons).toContain('non_personal');
-  });
-
   it('does not unfollow when only manual review without other triggers', () => {
     const r = evaluateUser(
       base({
         awemeCount: 10,
         needsManualReview: true,
-        isNonPersonalAccount: false,
       }),
     );
     expect(r.shouldUnfollow).toBe(false);

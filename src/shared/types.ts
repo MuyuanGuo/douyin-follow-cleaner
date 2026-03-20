@@ -3,7 +3,6 @@ export type UnfollowReason =
   | 'banned'
   | 'deleted'
   | 'no_posts'
-  | 'non_personal'
   | 'needs_manual_review';
 
 export interface NormalizedUser {
@@ -19,8 +18,6 @@ export interface NormalizedUser {
   isDeleted: boolean;
   /** True when we cannot tell private vs truly zero posts */
   needsManualReview: boolean;
-  /** Heuristic: not a normal personal creator account */
-  isNonPersonalAccount: boolean;
 }
 
 export interface EvaluateResult {

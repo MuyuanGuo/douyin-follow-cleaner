@@ -1,4 +1,4 @@
-import type { EvaluateResult, NormalizedUser, UnfollowReason } from './types.js';
+import type { EvaluateResult, NormalizedUser, UnfollowReason } from './types';
 
 /**
  * 根据归一化用户信息判断是否应取消关注（满足任一条件即 shouldUnfollow=true）。
@@ -19,15 +19,11 @@ export function evaluateUser(user: NormalizedUser): EvaluateResult {
   if (user.awemeCount === 0 && !user.needsManualReview) {
     reasons.push('no_posts');
   }
-  if (user.isNonPersonalAccount) {
-    reasons.push('non_personal');
-  }
 
   const shouldUnfollow =
     reasons.includes('banned') ||
     reasons.includes('deleted') ||
-    reasons.includes('no_posts') ||
-    reasons.includes('non_personal');
+    reasons.includes('no_posts');
 
   return { reasons, shouldUnfollow };
 }

@@ -54,7 +54,6 @@ export function normalizeProfileJson(
           isBanned: false,
           isDeleted: deleted,
           needsManualReview: false,
-          isNonPersonalAccount: false,
         },
         rawStatus: statusCode,
       };
@@ -93,19 +92,6 @@ export function normalizeProfileJson(
       userObj.deleted === true ||
       /已注销|账号已注销/.test(banHint);
 
-    // 企业 / 店铺 / 机构：蓝 V、企业认证、店铺标
-    const verifyType = pick<number>(userObj, ['verification_type', 'verification_type_new']);
-    const enterpriseReason = pick<string>(userObj, ['enterprise_verify_reason']);
-    const customVerify = pick<string>(userObj, ['custom_verify']);
-    const commerce = pick<unknown>(userObj, ['commerce_user_info', 'commerce_user_level']);
-
-    /** 认证类型因版本而异：通常 2 及以上偏企业/机构；以文案与 commerce 字段辅助判断 */
-    const isNonPersonalAccount =
-      (typeof verifyType === 'number' && verifyType >= 2) ||
-      (!!enterpriseReason && enterpriseReason.length > 0) ||
-      (!!customVerify && /企业|店铺|机构|品牌|官方/i.test(customVerify)) ||
-      (commerce !== undefined && commerce !== null);
-
     // 私密账号：部分接口 aweme_count 仍为 0，无法区分「未发」与「不可见」
     const secret = userObj.secret === true || userObj.private === true;
     const needsManualReview = secret && awemeCount === 0;
@@ -118,7 +104,6 @@ export function normalizeProfileJson(
       isBanned,
       isDeleted,
       needsManualReview,
-      isNonPersonalAccount,
     };
 
     return { user, rawStatus: statusCode };
@@ -139,6 +124,5 @@ function emptyUser(secUserId: string, nickname: string): NormalizedUser {
     isBanned: false,
     isDeleted: false,
     needsManualReview: true,
-    isNonPersonalAccount: false,
   };
 }
