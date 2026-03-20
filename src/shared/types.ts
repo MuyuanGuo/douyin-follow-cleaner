@@ -35,11 +35,35 @@ export interface FollowingListItem {
   raw?: Record<string, unknown>;
 }
 
-export interface ScanProgress {
-  phase: 'idle' | 'following' | 'profiles' | 'done' | 'error';
-  totalFollowing?: number;
-  processed: number;
+export const SCAN_PROGRESS_STORAGE_KEY = 'douyin_scan_progress';
+
+/** 弹窗与 content 共用的扫描进度 */
+export type ScanProgressPhase =
+  | 'idle'
+  | 'collecting'
+  | 'profiling'
+  | 'unfollowing'
+  | 'done'
+  | 'aborted'
+  | 'error';
+
+export interface ScanProgressState {
+  phase: ScanProgressPhase;
+  /** 拉取关注列表阶段：已收集的去重人数 */
+  collectedCount?: number;
+  /** 列表请求页序号 */
+  listPage?: number;
+  /** 分析资料：计划分析总人数（拉取完成后确定） */
+  totalToProfile?: number;
+  /** 已分析完成人数 */
+  profiledCount?: number;
+  /** 待分析人数（含队列中未开始的） */
+  pendingCount?: number;
+  /** 当前正在分析的关注用户昵称 */
   currentNickname?: string;
+  /** 取关进度 */
+  unfollowIndex?: number;
+  unfollowTotal?: number;
   message?: string;
 }
 

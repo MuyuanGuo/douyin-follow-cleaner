@@ -10,9 +10,18 @@ import {
 import { followingList } from '../shared/douyinApiMapping';
 import { normalizeProfileJson } from '../shared/normalize';
 import { evaluateUser } from '../shared/rules';
-import type { ScanResultRow } from '../shared/types';
+import type { FollowingListItem, ScanProgressState, ScanResultRow } from '../shared/types';
+import { SCAN_PROGRESS_STORAGE_KEY } from '../shared/types';
 
-const STORAGE_KEY = 'douyin_follow_cleaner_state';
+function setScanProgress(state: ScanProgressState): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set({ [SCAN_PROGRESS_STORAGE_KEY]: state }, () => {
+      const err = chrome.runtime.lastError;
+      if (err) reject(new Error(err.message));
+      else resolve();
+    });
+  });
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -97,103 +106,209 @@ export interface ScanOptions {
   signal?: AbortSignal;
 }
 
-async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; error?: string }> {
-  const rows: ScanResultRow[] = [];
-  let maxTime = '0';
-  let fetched = 0;
+/** 分页拉取关注列表（去重、上限），不拉资料 */
+async function collectFollowingItems(
+  ownerSecUserId: string,
+  maxCount: number,
+  signal: AbortSignal | undefined,
+): Promise<{ items: FollowingListItem[]; error?: string }> {
+  const items: FollowingListItem[] = [];
   const seen = new Set<string>();
+  let maxTime = '0';
   let page = 0;
   const maxPages = 500;
   const useHandshake = followingList.useSourceTypeHandshake !== false;
 
-  while (fetched < opts.maxFollowingToScan && page < maxPages) {
+  while (items.length < maxCount && page < maxPages) {
     page += 1;
-    if (opts.signal?.aborted) return { rows, error: 'aborted' };
+    if (signal?.aborted) return { items, error: 'aborted' };
 
     const isFirstFollowingRequest = page === 1;
     const sourceType: 1 | 2 = useHandshake && isFirstFollowingRequest ? 2 : 1;
     const requestMaxTime = useHandshake && isFirstFollowingRequest ? '0' : maxTime;
 
-    const url = buildFollowingListUrl(opts.ownerSecUserId, requestMaxTime, 20, sourceType);
+    const url = buildFollowingListUrl(ownerSecUserId, requestMaxTime, 20, sourceType);
     const res = await pageFetch(url);
     if (res.error) {
-      return { rows, error: res.error };
+      return { items, error: res.error };
     }
     if (!res.text && res.status === 0) {
-      return { rows, error: '页面内 fetch 失败（请确认当前在抖音页且已刷新）' };
+      return { items, error: '页面内 fetch 失败（请确认当前在抖音页且已刷新）' };
     }
     const json = parseJson(res.text);
     if (!json) {
       return {
-        rows,
+        items,
         error: `关注列表非 JSON（HTTP ${res.status}）。可能被风控拦截或路径错误，请核对 douyinApiMapping.followingList.path`,
       };
     }
 
     const apiErr = checkFollowingApiError(json);
     if (apiErr) {
-      return { rows, error: apiErr };
+      return { items, error: apiErr };
     }
 
-    const { items, nextMaxTime, hasMore } = parseFollowingResponse(json);
+    const { items: pageItems, nextMaxTime, hasMore } = parseFollowingResponse(json);
 
-    /** 首次握手：source_type=2 时常返回空列表，仅携带下一页游标，不能当作「没有关注」 */
-    if (useHandshake && isFirstFollowingRequest && items.length === 0) {
+    if (useHandshake && isFirstFollowingRequest && pageItems.length === 0) {
       maxTime = nextMaxTime;
       if (!maxTime || maxTime === '0') {
         return {
-          rows,
+          items,
           error:
             '关注列表握手未返回有效游标（max_time 等）。请在 Network 中搜索含 following/relation 的请求，对照更新 douyinApiMapping',
         };
       }
+      await setScanProgress({
+        phase: 'collecting',
+        collectedCount: items.length,
+        listPage: page,
+        message: '关注列表握手中…',
+      });
       continue;
     }
 
-    if (items.length === 0 && !hasMore) break;
+    if (pageItems.length === 0 && !hasMore) break;
 
-    for (const item of items) {
-      if (fetched >= opts.maxFollowingToScan) break;
+    for (const item of pageItems) {
+      if (items.length >= maxCount) break;
       if (seen.has(item.secUserId)) continue;
       seen.add(item.secUserId);
-      fetched += 1;
-
-      if (opts.signal?.aborted) return { rows, error: 'aborted' };
-      await sleep(opts.delayMsBetweenProfiles);
-
-      const pUrl = buildProfileUrl(item.secUserId);
-      const pres = await pageFetch(pUrl);
-      const pjson = parseJson(pres.text);
-      const { user, parseError } = normalizeProfileJson(pjson, item.secUserId);
-      if (parseError && !user.nickname) {
-        user.nickname = item.nickname ?? '';
-      }
-      const ev = evaluateUser(user);
-      rows.push({
-        secUserId: item.secUserId,
-        userId: user.userId ?? item.userId,
-        nickname: user.nickname || item.nickname || '',
-        reasons: ev.reasons,
-        shouldUnfollow: ev.shouldUnfollow,
-      });
-
-      chrome.storage.local.set({
-        [STORAGE_KEY]: {
-          phase: 'profiles',
-          processed: rows.length,
-          lastNickname: user.nickname,
-        },
-      });
+      items.push(item);
     }
+
+    await setScanProgress({
+      phase: 'collecting',
+      collectedCount: items.length,
+      listPage: page,
+      message: `已拉取关注列表 ${items.length} 人`,
+    });
 
     maxTime = nextMaxTime;
     if (!hasMore) break;
   }
 
+  return { items };
+}
+
+async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; error?: string }> {
+  const rows: ScanResultRow[] = [];
+
+  await setScanProgress({
+    phase: 'collecting',
+    collectedCount: 0,
+    listPage: 0,
+    message: '正在拉取关注列表…',
+  });
+
+  const { items: followingItems, error: collectErr } = await collectFollowingItems(
+    opts.ownerSecUserId,
+    opts.maxFollowingToScan,
+    opts.signal,
+  );
+
+  if (collectErr) {
+    await setScanProgress({
+      phase: collectErr === 'aborted' ? 'aborted' : 'error',
+      message: collectErr,
+    });
+    return { rows, error: collectErr };
+  }
+
+  const total = followingItems.length;
+  await setScanProgress({
+    phase: 'profiling',
+    totalToProfile: total,
+    profiledCount: 0,
+    pendingCount: total,
+    collectedCount: total,
+    message: total === 0 ? '关注列表为空' : `共 ${total} 人，开始分析资料…`,
+  });
+
+  if (total === 0) {
+    await chrome.storage.local.set({
+      [SCAN_PROGRESS_STORAGE_KEY]: {
+        phase: 'done',
+        totalToProfile: 0,
+        profiledCount: 0,
+        pendingCount: 0,
+        message: '无关注用户',
+      },
+      last_scan_results: [],
+    });
+    return { rows };
+  }
+
+  for (let i = 0; i < followingItems.length; i++) {
+    if (opts.signal?.aborted) {
+      await setScanProgress({ phase: 'aborted', message: '已中止' });
+      return { rows, error: 'aborted' };
+    }
+
+    const item = followingItems[i];
+    await setScanProgress({
+      phase: 'profiling',
+      totalToProfile: total,
+      profiledCount: i,
+      pendingCount: total - i,
+      currentNickname: item.nickname ?? item.secUserId,
+      message: `分析资料：第 ${i + 1} / ${total} 人`,
+    });
+
+    await sleep(opts.delayMsBetweenProfiles);
+
+    const pUrl = buildProfileUrl(item.secUserId);
+    const pres = await pageFetch(pUrl);
+    const pjson = parseJson(pres.text);
+    const { user, parseError } = normalizeProfileJson(pjson, item.secUserId);
+    if (parseError && !user.nickname) {
+      user.nickname = item.nickname ?? '';
+    }
+    const ev = evaluateUser(user);
+    rows.push({
+      secUserId: item.secUserId,
+      userId: user.userId ?? item.userId,
+      nickname: user.nickname || item.nickname || '',
+      reasons: ev.reasons,
+      shouldUnfollow: ev.shouldUnfollow,
+    });
+
+    const done = i + 1;
+    await setScanProgress({
+      phase: 'profiling',
+      totalToProfile: total,
+      profiledCount: done,
+      pendingCount: total - done,
+      currentNickname: user.nickname || item.nickname || '',
+      message: `已完成 ${done} / ${total}，待分析 ${total - done} 人`,
+    });
+  }
+
   if (opts.executeUnfollow) {
     const targets = rows.filter((r) => r.shouldUnfollow);
-    for (const t of targets) {
-      if (opts.signal?.aborted) return { rows, error: 'aborted' };
+    await setScanProgress({
+      phase: 'unfollowing',
+      unfollowTotal: targets.length,
+      unfollowIndex: 0,
+      totalToProfile: total,
+      profiledCount: rows.length,
+      pendingCount: 0,
+      message: targets.length === 0 ? '无需取关' : `准备取关 ${targets.length} 人…`,
+    });
+
+    for (let j = 0; j < targets.length; j++) {
+      if (opts.signal?.aborted) {
+        await setScanProgress({ phase: 'aborted', message: '已中止（取关阶段）' });
+        return { rows, error: 'aborted' };
+      }
+      const t = targets[j];
+      await setScanProgress({
+        phase: 'unfollowing',
+        unfollowTotal: targets.length,
+        unfollowIndex: j + 1,
+        currentNickname: t.nickname,
+        message: `取关中 ${j + 1} / ${targets.length}`,
+      });
       await sleep(opts.delayMsBetweenUnfollows);
       const { url, body, headers } = buildUnfollowRequest(t.secUserId, t.userId);
       await pageFetch(url, { method: 'POST', headers, body });
@@ -201,7 +316,13 @@ async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; erro
   }
 
   await chrome.storage.local.set({
-    [STORAGE_KEY]: { phase: 'done', processed: rows.length },
+    [SCAN_PROGRESS_STORAGE_KEY]: {
+      phase: 'done',
+      totalToProfile: total,
+      profiledCount: rows.length,
+      pendingCount: 0,
+      message: '扫描完成',
+    },
     last_scan_results: rows,
   });
 

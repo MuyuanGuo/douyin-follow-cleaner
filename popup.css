@@ -76,6 +76,21 @@ button:disabled {
   color: #333;
   min-height: 1.2em;
 }
+.progress-detail {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #222;
+  background: #f0f7ff;
+  border: 1px solid #cfe8ff;
+  border-radius: 6px;
+  min-height: 2.6em;
+  white-space: pre-wrap;
+}
+.progress-detail:empty {
+  display: none;
+}
 .log {
   margin: 0;
   max-height: 220px;

@@ -1,3 +1,5 @@
+import { SCAN_PROGRESS_STORAGE_KEY, type ScanProgressState } from '../shared/types';
+
 function el<T extends HTMLElement>(id: string): T {
   const n = document.getElementById(id);
   if (!n) throw new Error(`Missing #${id}`);
@@ -10,6 +12,51 @@ function setStatus(text: string) {
 
 function setLog(text: string) {
   el<HTMLPreElement>('log').textContent = text;
+}
+
+function setProgressDetail(text: string) {
+  const box = el<HTMLDivElement>('progressDetail');
+  box.textContent = text;
+}
+
+function formatProgress(s: ScanProgressState): string {
+  switch (s.phase) {
+    case 'collecting':
+      return [
+        `【拉取关注列表】已发现 ${s.collectedCount ?? 0} 人${s.listPage ? ` · 第 ${s.listPage} 页` : ''}`,
+        s.message ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    case 'profiling': {
+      const total = s.totalToProfile ?? 0;
+      const done = s.profiledCount ?? 0;
+      const pending = s.pendingCount ?? Math.max(0, total - done);
+      return [
+        `【分析资料】已完成 ${done} / 共 ${total} 人 · 待分析 ${pending} 人`,
+        s.currentNickname ? `当前：${s.currentNickname}` : '',
+        s.message ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
+    case 'unfollowing':
+      return [
+        `【执行取关】${s.unfollowIndex ?? 0} / ${s.unfollowTotal ?? 0}`,
+        s.currentNickname ? `当前：${s.currentNickname}` : '',
+        s.message ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    case 'done':
+      return s.message ?? '扫描完成';
+    case 'aborted':
+      return s.message ?? '已中止';
+    case 'error':
+      return s.message ?? '出错';
+    default:
+      return s.message ?? '';
+  }
 }
 
 function rowsToCsv(rows: Array<Record<string, unknown>>): string {
@@ -27,6 +74,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnScan = el<HTMLButtonElement>('btnScan');
   const btnAbort = el<HTMLButtonElement>('btnAbort');
   const btnExport = el<HTMLButtonElement>('btnExport');
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes[SCAN_PROGRESS_STORAGE_KEY]) return;
+    const nv = changes[SCAN_PROGRESS_STORAGE_KEY].newValue as ScanProgressState | undefined;
+    if (nv) setProgressDetail(formatProgress(nv));
+  });
+
+  void chrome.storage.local.get(SCAN_PROGRESS_STORAGE_KEY, (data) => {
+    const s = data[SCAN_PROGRESS_STORAGE_KEY] as ScanProgressState | undefined;
+    if (s && s.phase !== 'idle') setProgressDetail(formatProgress(s));
+  });
 
   btnScan.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -49,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnScan.disabled = true;
     setStatus('扫描中…');
     setLog('');
+    setProgressDetail('准备开始…');
 
     try {
       const res = await chrome.tabs.sendMessage(tab.id, {
@@ -62,6 +121,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!res?.ok) {
         setStatus(`失败：${res?.error ?? 'unknown'}`);
+        const errData = await chrome.storage.local.get(SCAN_PROGRESS_STORAGE_KEY);
+        const st = errData[SCAN_PROGRESS_STORAGE_KEY] as ScanProgressState | undefined;
+        if (st) setProgressDetail(formatProgress(st));
         return;
       }
 
@@ -78,6 +140,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       setLog(lines.join('\n') || '无结果');
       setStatus(`完成：共 ${rows.length} 人；将取关 ${rows.filter((x) => x.shouldUnfollow).length} 人（若已勾选执行取关则已请求）`);
+      setProgressDetail(
+        `【完成】共分析 ${rows.length} 人；建议取关 ${rows.filter((x) => x.shouldUnfollow).length} 人`,
+      );
 
       await chrome.storage.local.set({ last_scan_results: rows });
     } catch (e) {
