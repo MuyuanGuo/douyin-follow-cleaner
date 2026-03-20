@@ -100,7 +100,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const ownerSec = el<HTMLInputElement>('ownerSec').value.trim();
     const maxFollowingToScan = Number(el<HTMLInputElement>('maxFollowing').value) || 500;
-    const delayMsBetweenProfiles = Number(el<HTMLInputElement>('delayProfiles').value) || 1200;
+    const delayRaw = Number(el<HTMLInputElement>('delayProfiles').value);
+    const delayMsBetweenProfiles = Number.isFinite(delayRaw) ? delayRaw : 250;
+    const concRaw = Number(el<HTMLInputElement>('profileConcurrency').value);
+    const profileConcurrency =
+      Number.isFinite(concRaw) && concRaw >= 1 ? Math.min(8, Math.floor(concRaw)) : 3;
     const delayMsBetweenUnfollows = Number(el<HTMLInputElement>('delayUnfollow').value) || 2000;
     const executeUnfollow = el<HTMLInputElement>('executeUnfollow').checked;
 
@@ -115,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ownerSecUserId: ownerSec || undefined,
         maxFollowingToScan,
         delayMsBetweenProfiles,
+        profileConcurrency,
         delayMsBetweenUnfollows,
         executeUnfollow,
       });

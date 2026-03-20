@@ -99,11 +99,32 @@ async function resolveOwnerSecUserId(manualInput: string | undefined): Promise<{
 export interface ScanOptions {
   ownerSecUserId: string;
   maxFollowingToScan: number;
+  /** 每批之间的间隔（毫秒）；并发为 1 时等价于「每人之间」 */
   delayMsBetweenProfiles: number;
+  /** 同时拉取资料的人数，1=串行（最慢），3~5 通常明显加速（易触发风控） */
+  profileConcurrency: number;
   delayMsBetweenUnfollows: number;
   executeUnfollow: boolean;
   /** AbortController signal */
   signal?: AbortSignal;
+}
+
+async function profileOneItem(item: FollowingListItem): Promise<ScanResultRow> {
+  const pUrl = buildProfileUrl(item.secUserId);
+  const pres = await pageFetch(pUrl);
+  const pjson = parseJson(pres.text);
+  const { user, parseError } = normalizeProfileJson(pjson, item.secUserId);
+  if (parseError && !user.nickname) {
+    user.nickname = item.nickname ?? '';
+  }
+  const ev = evaluateUser(user);
+  return {
+    secUserId: item.secUserId,
+    userId: user.userId ?? item.userId,
+    nickname: user.nickname || item.nickname || '',
+    reasons: ev.reasons,
+    shouldUnfollow: ev.shouldUnfollow,
+  };
 }
 
 /** 分页拉取关注列表（去重、上限），不拉资料 */
@@ -239,47 +260,45 @@ async function runScan(opts: ScanOptions): Promise<{ rows: ScanResultRow[]; erro
     return { rows };
   }
 
-  for (let i = 0; i < followingItems.length; i++) {
+  const conc = Math.max(1, Math.min(8, Math.floor(opts.profileConcurrency) || 3));
+
+  for (let start = 0; start < followingItems.length; start += conc) {
     if (opts.signal?.aborted) {
       await setScanProgress({ phase: 'aborted', message: '已中止' });
       return { rows, error: 'aborted' };
     }
 
-    const item = followingItems[i];
+    const batch = followingItems.slice(start, start + conc);
+    const rangeEnd = Math.min(start + conc, total);
+
+    if (conc === 1) {
+      await sleep(opts.delayMsBetweenProfiles);
+    } else if (start > 0) {
+      await sleep(opts.delayMsBetweenProfiles);
+    }
+
     await setScanProgress({
       phase: 'profiling',
       totalToProfile: total,
-      profiledCount: i,
-      pendingCount: total - i,
-      currentNickname: item.nickname ?? item.secUserId,
-      message: `分析资料：第 ${i + 1} / ${total} 人`,
+      profiledCount: start,
+      pendingCount: total - start,
+      currentNickname: batch.map((b) => b.nickname).filter(Boolean)[0] ?? batch[0].secUserId,
+      message: `分析资料：第 ${start + 1}–${rangeEnd} / ${total} 人（并发 ${conc}）`,
     });
 
-    await sleep(opts.delayMsBetweenProfiles);
-
-    const pUrl = buildProfileUrl(item.secUserId);
-    const pres = await pageFetch(pUrl);
-    const pjson = parseJson(pres.text);
-    const { user, parseError } = normalizeProfileJson(pjson, item.secUserId);
-    if (parseError && !user.nickname) {
-      user.nickname = item.nickname ?? '';
+    const batchRows = await Promise.all(batch.map((item) => profileOneItem(item)));
+    for (const row of batchRows) {
+      rows.push(row);
     }
-    const ev = evaluateUser(user);
-    rows.push({
-      secUserId: item.secUserId,
-      userId: user.userId ?? item.userId,
-      nickname: user.nickname || item.nickname || '',
-      reasons: ev.reasons,
-      shouldUnfollow: ev.shouldUnfollow,
-    });
 
-    const done = i + 1;
+    const done = rows.length;
+    const last = batchRows[batchRows.length - 1];
     await setScanProgress({
       phase: 'profiling',
       totalToProfile: total,
       profiledCount: done,
       pendingCount: total - done,
-      currentNickname: user.nickname || item.nickname || '',
+      currentNickname: last?.nickname ?? '',
       message: `已完成 ${done} / ${total}，待分析 ${total - done} 人`,
     });
   }
@@ -345,10 +364,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return;
       }
       try {
+        const delayRaw = Number(msg.delayMsBetweenProfiles);
+        const concRaw = Number(msg.profileConcurrency);
         const r = await runScan({
           ownerSecUserId: resolved.sec,
           maxFollowingToScan: Number(msg.maxFollowingToScan) || 500,
-          delayMsBetweenProfiles: Number(msg.delayMsBetweenProfiles) || 1200,
+          delayMsBetweenProfiles: Number.isFinite(delayRaw) ? delayRaw : 250,
+          profileConcurrency:
+            Number.isFinite(concRaw) && concRaw >= 1 ? Math.min(8, Math.floor(concRaw)) : 3,
           delayMsBetweenUnfollows: Number(msg.delayMsBetweenUnfollows) || 2000,
           executeUnfollow: Boolean(msg.executeUnfollow),
           signal: abort.signal,

@@ -22,8 +22,13 @@
       </label>
 
       <label class="field">
-        <span>拉取资料间隔（毫秒）</span>
-        <input type="number" id="delayProfiles" value="1200" min="300" step="100" />
+        <span>同时拉取资料人数（并发，1=最慢最稳，3~5 更快）</span>
+        <input type="number" id="profileConcurrency" value="3" min="1" max="8" step="1" />
+      </label>
+
+      <label class="field">
+        <span>批次间隔（毫秒，并发&gt;1 时为每批之间；并发=1 为每人之间；可填 0）</span>
+        <input type="number" id="delayProfiles" value="250" min="0" step="50" />
       </label>
 
       <label class="field">
