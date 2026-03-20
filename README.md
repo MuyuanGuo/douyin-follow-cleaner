@@ -2,6 +2,11 @@
 
 独立仓库：用于在 **PC 浏览器** 打开 [抖音网页版](https://www.douyin.com/) 并登录后，扫描你的**关注列表**，按规则标记「错误用户」，并可选择**批量取消关注**。
 
+```bash
+git clone https://github.com/MuyuanGuo/douyin-follow-cleaner.git
+cd douyin-follow-cleaner
+```
+
 ## 规则（满足任一即标记为可取消关注）
 
 1. **封禁**：资料接口或用户对象中出现封禁相关字段/文案。  
